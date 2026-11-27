@@ -914,88 +914,114 @@ async function analyzeTab(tabId) {
       list.appendChild(li);
     });
 
-    // 6. 并发分析
+    // 6. 串行分析（滚动上下文）：放弃并发，每块提示词附带前一块的分析结论摘要，
+    // 让模型做跨块关联（数据流/调用链/凭据使用点）。代价是 N 块变 N 倍串行耗时。
     const ruleSummaries = buildRuleSummariesPerChunk(ruleFindings, chunks);
     const results = new Array(chunks.length).fill(null);
     const chunkErrors = [];
     const failedDumps = [];
+    const chunkSummaries = [];   // chunkSummaries[i] = 第 i 块分析结论的紧凑摘要，供第 i+1 块参考
     let doneCount = 0;
-    const concurrency = Math.max(1, Math.min(8, Number(settings.concurrency) || 2));
 
-    async function worker(queue) {
-      const run = async (userMsgContent) => {
-        const text = await callAI(settings, [
-          { role: 'system', content: (settings.customPrompt ? settings.customPrompt + '\n\n' : '') + BUILTIN_PROMPT },
-          { role: 'user', content: userMsgContent }
-        ]);
-        const parsed = extractJSON(text);
-        if (!parsed) throw new Error('返回内容无法解析为 JSON');
-        return parsed;
+    // 将单块分析结果压成紧凑摘要（限 3000 字符），作为下一块的滚动上下文
+    function summarizeResult(parsed) {
+      if (!parsed || typeof parsed !== 'object') return '';
+      const lines = [];
+      const cat = (label, arr, fmt) => {
+        if (!Array.isArray(arr) || !arr.length) return;
+        lines.push(`【${label}】`);
+        for (const it of arr.slice(0, 15)) {
+          if (it && typeof it === 'object') lines.push('- ' + fmt(it));
+        }
+        const more = arr.length - Math.min(15, arr.length);
+        if (more > 0) lines.push(`-（另有 ${more} 条同类发现，略）`);
       };
+      cat('敏感信息', parsed.sensitive, it => `${it.type || '未知'}: ${String(it.value || '').slice(0, 60)}`);
+      cat('API接口', parsed.apis, it => `${it.method || '未知'} ${it.url || ''}`);
+      cat('指纹', parsed.fingerprints, it => `${it.name || ''}${it.version ? ' v' + it.version : ''}（${it.category || ''}）`);
+      cat('漏洞线索', parsed.vulns, it => `${it.type || '未知'}: ${String(it.desc || '').slice(0, 80)}`);
+      return lines.slice(0, 80).join('\n').slice(0, 3000);
+    }
 
-      // 单块分析：上下文超限（400 request_invalid_parameter 等）时自动对半拆分递归重试，
-      // 避免分块大小配错（如 500000 字符单块超模型窗口）导致整轮失败
-      const MIN_SPLIT_CHARS = 16000; // 低于此长度还报超限，说明问题不在长度，不再拆
-      const analyzeChunk = async (chunk, summary, idx, total, depth) => {
-        const userMsgPlain = chunkToPrompt(chunk, idx, total, page.url)
-          + (summary ? `\n\n本地规则预筛命中项（请确认或剔除误报）:\n${obfuscateForWaf(summary)}` : '');
-        try {
-          return await run(userMsgPlain);
-        } catch (e) {
-          const msg = String(e.message || e);
-          const chunkLen = chunk.reduce((s, b) => s + b.text.length, 0);
-          if (isContextOverflow(msg) && chunkLen > MIN_SPLIT_CHARS && depth < 4) {
-            const halves = splitChunk(chunk);
-            const halfSums = buildRuleSummariesPerChunk(ruleFindings, halves);
-            const parts = [];
-            for (let h = 0; h < halves.length; h++) {
-              parts.push(await analyzeChunk(halves[h], halfSums[h], idx, total, depth + 1));
-            }
-            return mergeFindings(parts);
+    const run = async (userMsgContent) => {
+      const text = await callAI(settings, [
+        { role: 'system', content: (settings.customPrompt ? settings.customPrompt + '\n\n' : '') + BUILTIN_PROMPT },
+        { role: 'user', content: userMsgContent }
+      ]);
+      const parsed = extractJSON(text);
+      if (!parsed) throw new Error('返回内容无法解析为 JSON');
+      return parsed;
+    };
+
+    // 单块分析：上下文超限（400 request_invalid_parameter 等）时自动对半拆分递归重试，
+    // 避免分块大小配错（如 500000 字符单块超模型窗口）导致整轮失败
+    const MIN_SPLIT_CHARS = 16000; // 低于此长度还报超限，说明问题不在长度，不再拆
+    const analyzeChunk = async (chunk, summary, idx, total, depth, prevSummary) => {
+      const userMsgPlain = chunkToPrompt(chunk, idx, total, page.url)
+        + (summary ? `\n\n本地规则预筛命中项（请确认或剔除误报）:\n${obfuscateForWaf(summary)}` : '')
+        + (prevSummary ? `\n\n【前序片段分析结论】\n${prevSummary}\n
+以上是同一页面之前片段已得出的发现，仅作跨片段关联参考：请勿重复报告相同内容；若本片段代码与前序发现存在关联（如变量来源、数据流、调用链、凭据使用点），请在本片段对应发现的 desc/evidence 中注明「与前序片段关联」及具体关系；若发现前序结论与本片段代码矛盾，请指出。`
+        : '');
+      try {
+        return await run(userMsgPlain);
+      } catch (e) {
+        const msg = String(e.message || e);
+        const chunkLen = chunk.reduce((s, b) => s + b.text.length, 0);
+        if (isContextOverflow(msg) && chunkLen > MIN_SPLIT_CHARS && depth < 4) {
+          const halves = splitChunk(chunk);
+          const halfSums = buildRuleSummariesPerChunk(ruleFindings, halves);
+          const parts = [];
+          for (let h = 0; h < halves.length; h++) {
+            parts.push(await analyzeChunk(halves[h], halfSums[h], idx, total, depth + 1, prevSummary));
           }
-          // 原有重试阶梯：WAF 拦截走 Base64 编码重试，普通失败原样重试
-          if (isWafBlock(msg)) {
-            try {
-              return await run(encodeUserMsg(userMsgPlain, page.url) + '\n（严格只输出 JSON）');
-            } catch (e2) { e2.failedMsg = userMsgPlain; throw e2; }
-          }
+          return mergeFindings(parts);
+        }
+        // 原有重试阶梯：WAF 拦截走 Base64 编码重试，普通失败原样重试
+        if (isWafBlock(msg)) {
           try {
-            return await run(userMsgPlain + '\n\n（注意：严格只输出 JSON）');
+            return await run(encodeUserMsg(userMsgPlain, page.url) + '\n（严格只输出 JSON）');
           } catch (e2) { e2.failedMsg = userMsgPlain; throw e2; }
         }
-      };
-
-      while (queue.length) {
-        const i = queue.shift();
-        const li = $('chunk-' + i);
-        li.className = 'running';
         try {
-          results[i] = await analyzeChunk(chunks[i], ruleSummaries[i], i, chunks.length, 0);
-          li.className = 'done';
-        } catch (e1) {
-          // analyzeChunk 内部已做过超限拆分与一轮重试，到这里说明确实失败
-          const msg1 = String(e1.message || e1);
-          try {
-            // 最后一次机会：明文再试一次（对偶发性网络/解析失败兜底）
-            results[i] = await analyzeChunk(chunks[i], ruleSummaries[i], i, chunks.length, 4);
-            li.className = 'done';
-          } catch (e3) {
-            const msg3 = String(e3.message || e3);
-            li.className = 'failed';
-            li.title = msg3.slice(0, 300);
-            const hint = isContextOverflow(msg3) ? ' [输入超出模型上下文（已自动二分重试仍失败），建议调小「分块大小」或减小「最大采集内容」]' : '';
-            chunkErrors.push(`块 ${i + 1}: ${msg3.slice(0, 300)}${hint}${isWafBlock(msg3) ? ' [疑似WAF内容拦截，即使编码重试也未成功]' : ''}`);
-            // 保存最终发送的失败请求原文，供「导出失败块请求内容」离线排查
-            failedDumps.push({ chunk: i + 1, msg: String(e3.failedMsg || '') });
-          }
-        }
-        doneCount++;
-        $('progressBar').style.width = (10 + 85 * doneCount / chunks.length) + '%';
-        $('statusText').textContent = `已完成 ${doneCount}/${chunks.length} 块`;
+          return await run(userMsgPlain + '\n\n（注意：严格只输出 JSON）');
+        } catch (e2) { e2.failedMsg = userMsgPlain; throw e2; }
       }
+    };
+
+    // 串行主循环：第 i 块携带第 i-1 块的结论摘要
+    for (let i = 0; i < chunks.length; i++) {
+      const li = $('chunk-' + i);
+      li.className = 'running';
+      $('progressBar').style.width = (10 + 85 * doneCount / chunks.length) + '%';
+      $('statusText').textContent = `串行分析中（滚动上下文）${i > 0 ? '，已携带前 ' + i + ' 块结论' : ''}`;
+      const prevSummary = chunkSummaries[i - 1] || '';
+      try {
+        results[i] = await analyzeChunk(chunks[i], ruleSummaries[i], i, chunks.length, 0, prevSummary);
+        li.className = 'done';
+        chunkSummaries[i] = summarizeResult(results[i]);
+      } catch (e1) {
+        // analyzeChunk 内部已做过超限拆分与一轮重试，到这里说明确实失败
+        const msg1 = String(e1.message || e1);
+        try {
+          // 最后一次机会：明文再试一次（对偶发性网络/解析失败兜底）
+          results[i] = await analyzeChunk(chunks[i], ruleSummaries[i], i, chunks.length, 4, prevSummary);
+          li.className = 'done';
+          chunkSummaries[i] = summarizeResult(results[i]);
+        } catch (e3) {
+          const msg3 = String(e3.message || e3);
+          li.className = 'failed';
+          li.title = msg3.slice(0, 300);
+          const hint = isContextOverflow(msg3) ? ' [输入超出模型上下文（已自动二分重试仍失败），建议调小「分块大小」或减小「最大采集内容」]' : '';
+          chunkErrors.push(`块 ${i + 1}: ${msg3.slice(0, 300)}${hint}${isWafBlock(msg3) ? ' [疑似WAF内容拦截，即使编码重试也未成功]' : ''}`);
+          // 保存最终发送的失败请求原文，供「导出失败块请求内容」离线排查
+          failedDumps.push({ chunk: i + 1, msg: String(e3.failedMsg || '') });
+          // 失败块不产生摘要，滚动链在此断开（预期降级：后续块退回无前序上下文模式）
+        }
+      }
+      doneCount++;
+      $('progressBar').style.width = (10 + 85 * doneCount / chunks.length) + '%';
+      $('statusText').textContent = `已完成 ${doneCount}/${chunks.length} 块`;
     }
-    const queue = chunks.map((_, i) => i);
-    await Promise.all(Array.from({ length: Math.min(concurrency, chunks.length) }, () => worker(queue)));
 
     // 7. 合并渲染（全部失败则直接报错，不再渲染空报告）
     if (chunkErrors.length === chunks.length) {
@@ -1077,7 +1103,6 @@ function fillSettingsForm(s) {
   $('setModel').value = s.model;
   $('setTemp').value = s.temperature;
   $('setChunkSize').value = s.chunkSize;
-  $('setConcurrency').value = s.concurrency;
   $('setMaxKb').value = s.maxKb;
   $('setSkipLibs').checked = s.skipKnownLibs !== false;
   $('setSkipIncomplete').checked = s.skipIncompleteScripts !== false;
@@ -1092,12 +1117,10 @@ function readSettingsForm() {
     baseUrl: $('setBaseUrl').value.trim() || DEFAULTS.baseUrl,
     apiKey: $('setApiKey').value.trim(),
     model: $('setModel').value.trim() || DEFAULTS.model,
-    temperature: Number($('setTemp').value) || 0.2,
-    chunkSize: Number($('setChunkSize').value) || 20000,
-    concurrency: Number($('setConcurrency').value) || 2,
-    maxKb: Number($('setMaxKb').value) || 150,
-    skipKnownLibs: $('setSkipLibs').checked,
-    skipIncompleteScripts: $('setSkipIncomplete').checked,
+  temperature: Number($('setTemp').value) || 0.2,
+  chunkSize: Number($('setChunkSize').value) || 20000,
+  maxKb: Number($('setMaxKb').value) || 150,
+  skipKnownLibs: $('setSkipLibs').checked,    skipIncompleteScripts: $('setSkipIncomplete').checked,
     numCtx: Number($('setNumCtx').value) || 32768,
     numPredict: Number($('setNumPredict').value) || 8192,
     customPrompt: $('setCustomPrompt').value.trim()
