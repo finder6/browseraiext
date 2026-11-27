@@ -1,0 +1,19 @@
+# 临时产物
+test/ai_raw_*.txt
+test/e2e_report.json
+node_modules/
+*.log
+
+# AI 会话相关，不入库
+提示词.txt
+.workbuddy/
+
+# 打包产物
+*.zip
+
+# 测试运行产物（回归脚本本身保留，只排除输出）
+test/*_out*.txt
+test/repro_chunk_*.txt
+test/tiny_resp.txt
+test/waf_resp*.txt
+test/waf_body.json

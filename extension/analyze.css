@@ -1,0 +1,155 @@
+/* analyze.css - 浅色主题 */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: "Segoe UI", "Microsoft YaHei", sans-serif;
+  background: #f4f6fa;
+  color: #1f2430;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.topbar {
+  position: sticky; top: 0; z-index: 10;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 24px;
+  background: #ffffff;
+  border-bottom: 1px solid #e3e7ee;
+  box-shadow: 0 1px 4px rgba(20, 30, 60, .05);
+}
+.brand { display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 28px; }
+.brand h1 { font-size: 17px; }
+.target { font-size: 12px; color: #6b7280; max-width: 520px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.actions { display: flex; gap: 8px; }
+
+.btn {
+  border: 1px solid #d3d9e3; background: #fff; color: #333;
+  border-radius: 6px; padding: 6px 14px; font-size: 13px; cursor: pointer;
+  transition: all .15s;
+}
+.btn:hover:not(:disabled) { border-color: #4f6ef7; color: #4f6ef7; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.btn.primary { background: #4f6ef7; border-color: #4f6ef7; color: #fff; }
+.btn.primary:hover:not(:disabled) { background: #3d5ae8; color: #fff; }
+.btn.small { padding: 4px 10px; font-size: 12px; }
+
+/* 设置面板 */
+.settings {
+  margin: 16px 24px; padding: 18px 20px;
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 10px;
+}
+.settings h2 { font-size: 15px; margin-bottom: 12px; }
+.settings .grid {
+  display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px 20px; margin-bottom: 12px;
+}
+.settings label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #444; }
+.settings label.checkbox-label { flex-direction: row; align-items: center; gap: 6px; }
+.settings label.full { margin-bottom: 12px; }
+.settings input, .settings select, .settings textarea {
+  border: 1px solid #d3d9e3; border-radius: 6px; padding: 6px 10px; font-size: 13px;
+  font-family: inherit; background: #fafbfd;
+}
+.settings input:focus, .settings select:focus, .settings textarea:focus {
+  outline: none; border-color: #4f6ef7;
+}
+.settings .row { display: flex; gap: 8px; align-items: center; }
+.settings-actions { display: flex; align-items: center; gap: 12px; }
+#testResult { font-size: 13px; }
+#testResult.ok { color: #16a34a; }
+#testResult.fail { color: #dc2626; }
+
+main { padding: 16px 24px 48px; max-width: 1100px; margin: 0 auto; }
+
+.card {
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 10px;
+  padding: 16px 20px; margin-bottom: 16px;
+}
+.card h2 { font-size: 15px; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.card.error { border-color: #fecaca; background: #fef2f2; }
+.card.error h2 { color: #b91c1c; }
+.fail-list { margin: 6px 0 8px 18px; font-size: 12px; color: #7f1d1d; word-break: break-all; }
+.fail-list li { margin-bottom: 3px; }
+
+.count-badge {
+  background: #eef1ff; color: #4f6ef7; border-radius: 10px;
+  font-size: 12px; padding: 1px 9px; font-weight: 600;
+}
+.count-badge.zero { background: #f0f2f5; color: #9ca3af; }
+
+.hint { font-size: 12px; color: #8a93a5; margin-bottom: 8px; }
+
+/* 进度 */
+.progress-track { height: 8px; background: #e9edf4; border-radius: 4px; overflow: hidden; margin: 10px 0; }
+.progress-bar { height: 100%; width: 0%; background: linear-gradient(90deg, #4f6ef7, #7c5cf0); border-radius: 4px; transition: width .3s; }
+.chunk-list { list-style: none; display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0; }
+.chunk-list li {
+  font-size: 12px; padding: 2px 10px; border-radius: 12px;
+  background: #eef1f6; color: #6b7280;
+}
+.chunk-list li.running { background: #fff4dc; color: #b45309; }
+.chunk-list li.done { background: #dcfce7; color: #15803d; }
+.chunk-list li.failed { background: #fee2e2; color: #b91c1c; }
+.status { font-size: 12px; color: #6b7280; }
+
+/* 表格行 */
+.finding {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 4px 12px;
+  padding: 9px 4px;
+  border-bottom: 1px dashed #eceff4;
+  align-items: baseline;
+}
+.finding:last-child { border-bottom: none; }
+.finding .f-type { font-weight: 600; font-size: 13px; color: #374151; }
+.finding .f-main { word-break: break-all; font-size: 13px; }
+.finding .f-value { font-family: Consolas, Menlo, monospace; color: #0f172a; background: #f4f6fa; padding: 1px 6px; border-radius: 4px; }
+.finding .f-evidence { grid-column: 2 / 4; font-size: 12px; color: #8a93a5; word-break: break-all; }
+.finding .f-extra { font-size: 12px; color: #6b7280; }
+
+.badge {
+  display: inline-block; border-radius: 10px; padding: 1px 9px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+}
+.badge.高, .badge.critical { background: #fee2e2; color: #b91c1c; }
+.badge.中, .badge.medium { background: #fef3c7; color: #b45309; }
+.badge.低, .badge.low { background: #dbeafe; color: #1d4ed8; }
+.badge.信息, .badge.info { background: #f0f2f5; color: #6b7280; }
+.badge.cat { background: #eef1ff; color: #4f6ef7; }
+
+.empty { color: #9ca3af; font-size: 13px; padding: 6px 0; }
+
+/* 本地规则预筛：折叠面板（默认收起，AI 报告优先展示） */
+#regexCard { padding: 12px 20px; }
+#regexCard summary {
+  cursor: pointer; font-weight: 600; font-size: 15px;
+  display: flex; align-items: center; gap: 8px; user-select: none;
+}
+#regexCard summary::marker { color: #8a93a5; }
+#regexCard .summary-note { font-size: 12px; font-weight: 400; color: #8a93a5; }
+#regexCard .regex-body {
+  max-height: 600px; overflow: auto; margin-top: 10px;
+  border-top: 1px solid #eceff4; padding-top: 4px;
+}
+
+/* 汇总条 */
+.summary-bar {
+  display: flex; gap: 10px; flex-wrap: wrap;
+  padding: 12px 16px; margin-bottom: 16px;
+  background: #fff; border: 1px solid #e3e7ee; border-radius: 10px;
+  font-size: 13px;
+}
+.summary-bar .chip { padding: 3px 12px; border-radius: 14px; background: #f4f6fa; }
+.summary-bar .chip b { color: #4f6ef7; }
+
+/* 原始内容 */
+#rawDetails summary { cursor: pointer; font-weight: 600; }
+#rawPreview {
+  max-height: 400px; overflow: auto; margin-top: 10px;
+  background: #f8f9fc; border: 1px solid #eceff4; border-radius: 6px;
+  padding: 12px; font-size: 12px; font-family: Consolas, Menlo, monospace;
+  white-space: pre-wrap; word-break: break-all;
+}
+
+.hidden { display: none !important; }

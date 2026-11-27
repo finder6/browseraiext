@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "AI 页面安全分析器",
+  "version": "1.0.0",
+  "description": "点击图标打开分析页，通过 AI 解析当前网页的 HTML/JS 等内容，提取敏感信息、API 接口、Web 指纹并进行漏洞分析。支持 OpenAI 兼容接口与 Ollama 本地模型。",
+  "permissions": ["activeTab", "scripting", "storage", "tabs", "webRequest"],
+  "host_permissions": ["<all_urls>"],
+  "action": {
+    "default_title": "AI 安全分析当前页面",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  }
+}
